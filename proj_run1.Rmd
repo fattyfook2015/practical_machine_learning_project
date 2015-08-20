@@ -1,0 +1,132 @@
+---
+title: "Practical Machine Learning Project"
+output: html_document
+---
+
+#Project Aim
+This is the Practical Machine Learning assignement where I was given a task to use the training data and run a data mining algorithm to predict which class of exercise of the test set data will be assigned to.  
+
+First we create the working directory in my computer.
+```{r, cache=TRUE}
+setwd("C:/Users/User/Desktop/school/IDA_MOOC/coursera2015/8.Practical Machine Learning/projecy")
+```
+
+Follow by loading both the training and testing data into the workspace.
+From the training data, the dimension were 19622 rows with  160 columns(variables).
+While the test data, have 20 rows with 160 columns.
+```{r, cache=TRUE}
+raw_train <- read.csv("./pml-training.csv")
+raw_test <- read.csv("./pml-testing.csv")
+dim(raw_train)
+dim(raw_test)
+```
+
+##Data Partitioning
+Since we need to get the out of sample error, we will split the training data into 70/30 partition.
+Whereby, 70% will be use to train the model, and 30% will be used to check how good the model is.
+```{r, echo=FALSE, cache=TRUE}
+library(caret)
+```
+```{r, cache=TRUE}
+set.seed(1234)
+inTrain <- createDataPartition(y=raw_train$classe, p=0.7, list=F)
+train_1 <- raw_train[inTrain, ]
+train_1_test <- raw_train[-inTrain, ]
+c(dim(train_1), dim(train_1_test))
+```
+
+##Reducing Data dimension
+With 160 columns, there are too many variable to include into the model. Hence we will try to reduce the data by removing variable which have almost zero variance. 
+```{r, cache=TRUE}
+nzvar <- nearZeroVar(train_1)
+train_1 <- train_1[, -nzvar]
+train_1_test <- train_1_test[, -nzvar]
+c(dim(train_1), dim(train_1_test))
+```
+
+From the above step, the dimension was reduced from 160 to 104. 
+However, there are still several variable which have a high level of NA. Thus we wil proceed to remove those variables which have a more than 95% of NA.
+```{r, cache=TRUE}
+almost_NA <- sapply(train_1, function(x) mean(is.na(x))) > 0.95
+train_1 <- train_1[, almost_NA==F]
+train_1_test <- train_1_test[, almost_NA==F]
+c(dim(train_1), dim(train_1_test))
+```
+
+The last reduction of data dimension will be those variables which do not have much values or use from it. 
+```{r, cache=TRUE}
+str(train_1)
+```
+
+From the above output, we can see that the first 5 columns doesn't provide much use, hence we will proceed to do the final remova of the first 5 columns. 
+```{r, cache=TRUE}
+train_1 <- train_1[, -(1:5)]
+train_1_test <- train_1_test[, -(1:5)]
+c(dim(train_1), dim(train_1_test))
+```
+
+##Model Building
+We will train a model with randomforest with 5-fold time cross validation. This will instruct to use the partition training data to use 5-fold CV to select optimal tuning variables. We will call the model as __fitrF__
+```{r, cache=TRUE,echo=FALSE}
+fitControl <- trainControl(method="cv", number=5, verboseIter=F)
+fitrF <- train(classe ~ ., data=train_1, method="rf", trControl=fitControl)
+```
+
+We can see how many variables are selected from __fitrF__
+```{r, cache=TRUE}
+fitrF$finalModel
+```
+
+##Out of sample error
+We will use __fitrF__ to predict classe in validation set (train_1_test). Then we will get the confusion matrix on how good it performs and also to get the estimate of out-of-sample error.
+
+```{r, cache=TRUE}
+pred_test <- predict(fitrF, newdata=train_1_test)
+confusionMatrix(train_1_test$classe, pred_test)
+```
+
+Since we are able to get 99.8% accuracy, which mean the out of sample error is only 0.02%. We can proceed to use this random forest model to predict the actual test set. 
+
+##Retrain the training data.
+Since we first run the training data using a 70/30 parition, we now can consider using the full training data. Then we will train it and use it predict the actual test data.
+
+###Reducing the dimension
+We will repeat the step of removing those variables which are low variability, high percentage of NAs and also the first 5 columns (X, user_name, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp).
+```{r, cache=TRUE}
+nzvar1 <- nearZeroVar(raw_train)
+raw_train <- raw_train[, -nzvar1]
+raw_test <- raw_test[, -nzvar1]
+
+almost_NA_1 <- sapply(raw_train, function(x) mean(is.na(x))) > 0.95
+raw_train <- raw_train[, almost_NA_1==F]
+raw_test <- raw_test[, almost_NA_1==F]
+
+raw_train <- raw_train[, -(1:5)]
+raw_test <- raw_test[, -(1:5)]
+```
+
+##Re-fit model using full training set (raw_train)
+```{r, cache=TRUE}
+fitControl <- trainControl(method="cv", number=5, verboseIter=F)
+fit_finalRf <- train(classe ~ ., data=raw_train, method="rf", trControl=fitControl)
+```
+
+## Using the latest model to predict classe in testing data
+```{r, cache=TRUE}
+pred_final <- predict(fit_finalRf, newdata=raw_test)
+pred_final
+```
+
+##Exporting the data for submssion
+```{r, cache=TRUE}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+# run the function with the 20 predicted values and it will save in the working directory. 
+pml_write_files(pred_final)
+```
